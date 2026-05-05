@@ -1,0 +1,123 @@
+//@version=5
+// No-Wick Candle Detector with Support/Resistance
+//
+// Highlights candles whose top wick or bottom wick is effectively zero
+// (Marubozu-style closes at the high or low of the bar). Plots an arrow,
+// a volume label, and optionally draws a horizontal S/R level at the
+// detection price.
+//
+// Detection logic:
+//   - "No top wick"    : high  == max(open, close)  (close/open is the bar high)
+//   - "No bottom wick" : low   == min(open, close)  (close/open is the bar low)
+//
+// Directional filter restricts signals to bullish or bearish candles only.
+
+indicator("No-Wick Candle Detector + S/R", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// ============================================================================
+// Inputs
+// ============================================================================
+grpDet = "Detection"
+detectTopInput = input.bool(true,  "Detect candles with NO TOP wick",    group = grpDet)
+detectBotInput = input.bool(true,  "Detect candles with NO BOTTOM wick", group = grpDet)
+directional    = input.string("Both", "Directional filter",
+     options = ["Both", "Bullish only", "Bearish only"], group = grpDet,
+     tooltip = "Restrict detection to only bullish (close > open) or only bearish (close < open) candles.")
+
+grpVis = "Display"
+showArrows = input.bool(true,  "Show arrows",                 group = grpVis)
+showVolume = input.bool(true,  "Show volume label at signal", group = grpVis)
+bullColor  = input.color(color.lime, "Bullish color",         group = grpVis)
+bearColor  = input.color(color.red,  "Bearish color",         group = grpVis)
+
+grpSR = "Support / Resistance"
+drawSR    = input.bool(true, "Draw S/R level at detection",       group = grpSR)
+srLen     = input.int(50, "S/R line length (bars)",   minval = 1, group = grpSR)
+srMax     = input.int(20, "Max S/R lines kept on chart", minval = 1, group = grpSR)
+srWidth   = input.int(2,  "S/R line width",            minval = 1, maxval = 5, group = grpSR)
+resColor  = input.color(color.new(color.red,   20), "Resistance color", group = grpSR)
+supColor  = input.color(color.new(color.green, 20), "Support color",    group = grpSR)
+extendSR  = input.bool(false, "Extend S/R lines to the right edge", group = grpSR,
+     tooltip = "If on, lines extend indefinitely instead of stopping after the configured length.")
+
+// ============================================================================
+// Wick / direction logic
+// ============================================================================
+isBull   = close > open
+isBear   = close < open
+bodyTop  = math.max(open, close)
+bodyBot  = math.min(open, close)
+
+// Allow a one-tick tolerance so floating-point equality is robust.
+tol      = syminfo.mintick
+noTop    = (high - bodyTop) <= tol
+noBot    = (bodyBot - low ) <= tol
+
+passDir  = (directional == "Both") or (directional == "Bullish only" and isBull) or (directional == "Bearish only" and isBear)
+
+signalNoTop = detectTopInput and noTop and passDir
+signalNoBot = detectBotInput and noBot and passDir
+anySignal   = signalNoTop or signalNoBot
+
+arrowColor  = isBull ? bullColor : bearColor
+
+// ============================================================================
+// Arrows
+// ============================================================================
+// "No top wick" → bar closed at its high → arrow ABOVE the bar pointing down
+// "No bottom wick" → bar closed at its low  → arrow BELOW the bar pointing up
+plotshape(showArrows and signalNoTop,
+     title = "No Top Wick",
+     style = shape.triangledown,
+     location = location.abovebar,
+     color = arrowColor,
+     size = size.normal)
+
+plotshape(showArrows and signalNoBot,
+     title = "No Bottom Wick",
+     style = shape.triangleup,
+     location = location.belowbar,
+     color = arrowColor,
+     size = size.normal)
+
+// ============================================================================
+// Volume label
+// ============================================================================
+if showVolume and anySignal
+    volTxt   = str.tostring(volume, format.volume)
+    yLoc     = signalNoTop ? high : low
+    lblStyle = signalNoTop ? label.style_label_down : label.style_label_up
+    label.new(
+         x         = bar_index,
+         y         = yLoc,
+         text      = "Vol " + volTxt,
+         style     = lblStyle,
+         color     = color.new(arrowColor, 70),
+         textcolor = color.white,
+         size      = size.small)
+
+// ============================================================================
+// Support / Resistance lines
+// ============================================================================
+var line[] srLines = array.new<line>()
+
+f_addLine(float price, color col) =>
+    ext = extendSR ? extend.right : extend.none
+    l   = line.new(bar_index, price, bar_index + srLen, price, color = col, width = srWidth, style = line.style_solid, extend = ext)
+    array.push(srLines, l)
+    while array.size(srLines) > srMax
+        old = array.shift(srLines)
+        line.delete(old)
+
+if drawSR and signalNoTop
+    f_addLine(high, resColor)
+
+if drawSR and signalNoBot
+    f_addLine(low, supColor)
+
+// ============================================================================
+// Alerts
+// ============================================================================
+alertcondition(signalNoTop, "No Top Wick Detected",    "No-top-wick candle detected on {{ticker}} {{interval}}")
+alertcondition(signalNoBot, "No Bottom Wick Detected", "No-bottom-wick candle detected on {{ticker}} {{interval}}")
+alertcondition(anySignal,   "Any No-Wick Detected",    "No-wick candle detected on {{ticker}} {{interval}}")
