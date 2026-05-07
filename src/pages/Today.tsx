@@ -1,37 +1,82 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/Card";
 import { StatTile } from "@/components/StatTile";
 import { TimeByAppChart } from "@/components/charts/TimeByAppChart";
 import { TimeByCategoryChart } from "@/components/charts/TimeByCategoryChart";
 import { StrategicReactiveBar } from "@/components/charts/StrategicReactiveBar";
 import { SummaryPanel } from "@/components/SummaryPanel";
+import { PausedBanner } from "@/components/PausedBanner";
 import { useActivity } from "@/stores/activityStore";
 import { useSettings } from "@/stores/settingsStore";
 import { useGoals } from "@/stores/goalsStore";
 import { dayRange, hoursLabel } from "@/lib/time";
 import { alignAll } from "@/services/goals";
-import { Activity, CircleDot, Clock, Flame, Zap } from "lucide-react";
+import { Activity, CircleDot, Clock, Flame, RefreshCw, Zap } from "lucide-react";
 
 export default function Today() {
   const range = dayRange();
   const { settings, loaded } = useSettings();
   const { goals } = useGoals();
   const { insights, joined, loadRange, loadSummaries } = useActivity();
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastRefreshAt, setLastRefreshAt] = useState<number>(0);
 
+  const refresh = async () => {
+    if (!loaded) return;
+    setRefreshing(true);
+    try {
+      await loadRange(range, settings);
+      void loadSummaries("day", range);
+      setLastRefreshAt(Date.now());
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Initial load + auto-refresh every 30s while the tab is open. Cheap:
+  // each tick re-runs normalization on a single day's raw events.
   useEffect(() => {
     if (!loaded) return;
-    void loadRange(range, settings);
-    void loadSummaries("day", range);
+    void refresh();
+    const id = window.setInterval(() => void refresh(), 30_000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, range.start, range.end]);
 
   if (!insights) {
-    return <div className="text-ink-400 text-sm">Loading today…</div>;
+    return (
+      <div className="space-y-6">
+        <PausedBanner />
+        <div className="text-ink-400 text-sm">Loading today…</div>
+      </div>
+    );
   }
 
   const alignments = alignAll(goals, joined);
 
   return (
     <div className="space-y-6">
+      <PausedBanner />
+
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-ink-500">
+          {lastRefreshAt
+            ? `Updated ${new Date(lastRefreshAt).toLocaleTimeString()}`
+            : "Loading…"}
+          {" · auto-refreshes every 30s"}
+        </div>
+        <button
+          onClick={() => void refresh()}
+          disabled={refreshing}
+          className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border border-ink-200 bg-white hover:bg-ink-50 disabled:opacity-50"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`}
+          />
+          {refreshing ? "Refreshing…" : "Refresh tracking data"}
+        </button>
+      </div>
+
       <div className="grid grid-cols-4 gap-4">
         <StatTile
           label="Tracked"

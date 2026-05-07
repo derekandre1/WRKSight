@@ -527,4 +527,81 @@ impl<'a> Repo<'a> {
         )?;
         Ok(raw + sess)
     }
+
+    // ---------- diagnostics helpers ----------
+
+    pub fn count_raw_in_range(&self, since: i64, until: i64) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM raw_activity_events
+             WHERE started_at >= ?1 AND started_at < ?2",
+            [since, until],
+            |r| r.get(0),
+        )?)
+    }
+
+    pub fn count_sessions_in_range(&self, since: i64, until: i64) -> Result<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM normalized_sessions
+             WHERE started_at >= ?1 AND started_at < ?2",
+            [since, until],
+            |r| r.get(0),
+        )?)
+    }
+
+    pub fn latest_raw(&self) -> Result<Option<RawEvent>> {
+        let mut st = self.conn.prepare(
+            "SELECT id, started_at, ended_at, app_name, window_title, browser_domain,
+                    is_idle, is_private_window, normalized
+             FROM raw_activity_events ORDER BY started_at DESC LIMIT 1",
+        )?;
+        let mut rows = st.query([])?;
+        if let Some(r) = rows.next()? {
+            Ok(Some(RawEvent {
+                id: Some(r.get(0)?),
+                started_at: r.get(1)?,
+                ended_at: r.get(2)?,
+                app_name: r.get(3)?,
+                window_title: r.get(4)?,
+                browser_domain: r.get(5)?,
+                is_idle: r.get::<_, i64>(6)? != 0,
+                is_private_window: r.get::<_, i64>(7)? != 0,
+                normalized: r.get::<_, i64>(8)? != 0,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn latest_session(&self) -> Result<Option<NormalizedSession>> {
+        let mut st = self.conn.prepare(
+            "SELECT id, started_at, ended_at, duration_ms, app_name, title_root, browser_domain,
+                    interruption_count, context_switch_count, source_event_ids_json, classified
+             FROM normalized_sessions ORDER BY started_at DESC LIMIT 1",
+        )?;
+        let mut rows = st.query([])?;
+        if let Some(r) = rows.next()? {
+            Ok(Some(NormalizedSession {
+                id: Some(r.get(0)?),
+                started_at: r.get(1)?,
+                ended_at: r.get(2)?,
+                duration_ms: r.get(3)?,
+                app_name: r.get(4)?,
+                title_root: r.get(5)?,
+                browser_domain: r.get(6)?,
+                interruption_count: r.get(7)?,
+                context_switch_count: r.get(8)?,
+                source_event_ids_json: r.get(9)?,
+                classified: r.get::<_, i64>(10)? != 0,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn delete_sessions_in_range(&self, since: i64, until: i64) -> Result<usize> {
+        Ok(self.conn.execute(
+            "DELETE FROM normalized_sessions WHERE started_at >= ?1 AND started_at < ?2",
+            [since, until],
+        )?)
+    }
 }

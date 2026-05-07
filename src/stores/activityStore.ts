@@ -18,6 +18,7 @@ import { getAiProvider } from "@/services/ai";
 import type { SettingsMap } from "@/types";
 import { generateSummary } from "@/services/summarizer";
 import type { Goal } from "@/types/goal";
+import { runNormalization } from "@/services/normalizationRunner";
 
 interface ActivityState {
   sessions: NormalizedSession[];
@@ -50,6 +51,14 @@ export const useActivity = create<ActivityState>((set, get) => ({
   async loadRange(range, settings) {
     set({ loading: true });
     try {
+      // Run normalization first so freshly-captured raw events show up as
+      // sessions in the read that follows. Without this the dashboard
+      // permanently displays empty state — see fix/tracking-pipeline PR.
+      try {
+        await runNormalization(range, settings);
+      } catch (e) {
+        console.warn("normalization failed; continuing with stale sessions", e);
+      }
       const [sessions, classifications] = await Promise.all([
         ipc.listSessions(range.start, range.end),
         ipc.listClassifications(range.start, range.end),

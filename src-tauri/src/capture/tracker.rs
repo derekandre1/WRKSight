@@ -5,6 +5,8 @@
 //!   * apply the privacy filter *before* persisting
 //!   * write raw events (one row per distinct window; extended while the
 //!     foreground stays the same)
+//!   * publish lightweight diagnostics on `AppState` so the UI can show
+//!     whether the loop is alive without round-tripping the DB
 //!
 //! It is intentionally dumb. Normalization and classification are done in
 //! the TypeScript layer from stored rows.
@@ -20,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub async fn run_forever(state: Arc<AppState>) {
+    log::info!("tracker: starting loop");
     let window: Box<dyn WindowProvider> = Box::new(ActiveWinProvider);
     let idle: Box<dyn IdleProvider> = Box::new(SystemIdleProvider);
     run_with_providers(state, window.as_ref(), idle.as_ref()).await;
@@ -51,6 +54,8 @@ pub async fn run_with_providers(
         };
 
         tokio::time::sleep(Duration::from_millis(interval_ms)).await;
+        let now_ms = Utc::now().timestamp_millis();
+        state.last_tick_at.store(now_ms, Ordering::Relaxed);
 
         if state.paused.load(Ordering::Relaxed) {
             // On resume, don't carry a dangling open session into the new state.
@@ -62,14 +67,33 @@ pub async fn run_with_providers(
         let is_idle = idle_ms >= idle_threshold_ms;
 
         let snap = match window.current() {
-            Ok(Some(s)) => s,
-            _ => {
+            Ok(Some(s)) => {
+                // Clear any stale capture error from a previous bad tick.
+                {
+                    let mut err_slot = state.last_capture_error.lock();
+                    if err_slot.is_some() {
+                        *err_slot = None;
+                    }
+                }
+                state.last_capture_at.store(now_ms, Ordering::Relaxed);
+                s
+            }
+            Ok(None) => {
+                // Foreground is the desktop / nothing focused. Common on
+                // Windows when the user clicks the wallpaper. Not an error,
+                // but break any open session so we don't bridge across.
+                prev = None;
+                continue;
+            }
+            Err(e) => {
+                let msg = format!("active-win failed: {e}");
+                log::warn!("tracker: {msg}");
+                *state.last_capture_error.lock() = Some(msg);
                 prev = None;
                 continue;
             }
         };
 
-        let now_ms = Utc::now().timestamp_millis();
         let private = state.private_mode.load(Ordering::Relaxed);
 
         // Build the sample and run it through the privacy filter.
@@ -120,7 +144,14 @@ pub async fn run_with_providers(
                     let _ = repo.update_raw_ended_at(prev_id, now_ms);
                 }
                 match repo.insert_raw(&sample) {
-                    Ok(id) => prev = Some((id, snap)),
+                    Ok(id) => {
+                        log::debug!(
+                            "tracker: insert {} — {}",
+                            sample.app_name,
+                            sample.window_title
+                        );
+                        prev = Some((id, snap));
+                    }
                     Err(e) => log::error!("raw insert failed: {e}"),
                 }
             }

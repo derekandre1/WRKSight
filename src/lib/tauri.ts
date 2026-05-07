@@ -9,6 +9,7 @@
 import type {
   Accomplishment,
   AiClassification,
+  Diagnostics,
   Exclusion,
   Goal,
   NormalizedSession,
@@ -81,6 +82,15 @@ export const ipc = {
 
   purgeRange: (since: number, until: number) =>
     call<number>("purge_range", { since, until }),
+
+  replaceSessionsInRange: (
+    since: number,
+    until: number,
+    sessions: NormalizedSession[]
+  ) =>
+    call<number>("replace_sessions_in_range", { since, until, sessions }),
+
+  getDiagnostics: () => call<Diagnostics>("get_diagnostics"),
 };
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -374,6 +384,53 @@ function handleMock(
         (r) => !(r.started_at >= (args.since as number) && r.started_at < (args.until as number))
       );
       return before - (s.raw.rows.length + s.sessions.rows.length);
+    }
+    case "replace_sessions_in_range": {
+      const since = args.since as number;
+      const until = args.until as number;
+      const incoming = (args.sessions as NormalizedSession[]) ?? [];
+      s.sessions.rows = s.sessions.rows.filter(
+        (r) => !(r.started_at >= since && r.started_at < until)
+      );
+      for (const row of incoming) {
+        const id = s.sessions.nextId++;
+        s.sessions.rows.push({ ...row, id });
+      }
+      return incoming.length;
+    }
+    case "get_diagnostics": {
+      const dayStart = new Date();
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = dayStart.getTime() + 86_400_000;
+      const inToday = (t: number) => t >= dayStart.getTime() && t < dayEnd;
+      const rawToday = s.raw.rows.filter((r) => inToday(r.started_at)).length;
+      const sessToday = s.sessions.rows.filter((r) =>
+        inToday(r.started_at)
+      ).length;
+      const lastRaw = s.raw.rows.reduce<RawActivityEvent | null>(
+        (a, b) => (a == null || b.started_at > a.started_at ? b : a),
+        null
+      );
+      const latestSess = s.sessions.rows.reduce<NormalizedSession | null>(
+        (a, b) => (a == null || b.started_at > a.started_at ? b : a),
+        null
+      );
+      const diagnostics: Diagnostics = {
+        paused: s.settings.tracking_paused === "true",
+        private_mode: s.settings.private_mode === "true",
+        platform: "browser-mock",
+        db_path: "(in-memory mock backend)",
+        last_tick_at: now,
+        last_capture_at: lastRaw?.started_at ?? 0,
+        last_capture_error: null,
+        last_raw_event: lastRaw,
+        latest_session: latestSess,
+        raw_count_today: rawToday,
+        session_count_today: sessToday,
+        raw_count_total: s.raw.rows.length,
+        session_count_total: s.sessions.rows.length,
+      };
+      return diagnostics;
     }
     default:
       throw new Error(`mockInvoke: unknown command ${cmd}`);
