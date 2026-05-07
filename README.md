@@ -146,6 +146,9 @@ Every mock is marked with a `// MOCK:` comment. Grep for them.
   Settings to activate
 - `src-tauri/src/capture/window.rs` — Linux path falls back to a dev stub when
   `WRKSIGHT_MOCK_CAPTURE=1`
+- `src-tauri/icons/*` — solid-blue placeholder icons so `tauri-build` succeeds
+  on Windows out of the box. Replace before shipping; see
+  `src-tauri/icons/README.md`.
 
 ## License
 
