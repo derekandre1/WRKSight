@@ -10,6 +10,7 @@ import Accomplishments from "@/pages/Accomplishments";
 import GoalsPage from "@/pages/Goals";
 import Privacy from "@/pages/Privacy";
 import Settings from "@/pages/Settings";
+import Diagnostics from "@/pages/Diagnostics";
 
 export default function App() {
   useBootstrap();
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/goals" element={<GoalsPage />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/diagnostics" element={<Diagnostics />} />
           </Routes>
         </main>
       </div>

@@ -59,6 +59,8 @@ pub fn run() {
             commands::upsert_accomplishment,
             commands::delete_accomplishment,
             commands::purge_range,
+            commands::replace_sessions_in_range,
+            commands::get_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running WRKSight");

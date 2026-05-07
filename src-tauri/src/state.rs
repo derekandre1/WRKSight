@@ -4,7 +4,7 @@ use directories::ProjectDirs;
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicI64};
 use tauri::AppHandle;
 
 /// Shared application state. One connection lives inside a Mutex; for the
@@ -18,6 +18,16 @@ pub struct AppState {
     /// tracking without waiting on a DB round-trip.
     pub paused: AtomicBool,
     pub private_mode: AtomicBool,
+    /// Wall-clock millis when the tracker loop last completed an iteration.
+    /// 0 = never. Used by the diagnostics view to confirm the loop is alive.
+    pub last_tick_at: AtomicI64,
+    /// Wall-clock millis when the tracker last successfully captured a
+    /// foreground window snapshot. 0 = never.
+    pub last_capture_at: AtomicI64,
+    /// Most recent capture-side error message (e.g. an `active-win-pos-rs`
+    /// failure). Cleared on the next successful capture. Surfaced verbatim
+    /// in /diagnostics so we don't silently swallow Windows-specific issues.
+    pub last_capture_error: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -65,6 +75,9 @@ impl AppState {
             db_path,
             paused: AtomicBool::new(paused),
             private_mode: AtomicBool::new(private_mode),
+            last_tick_at: AtomicI64::new(0),
+            last_capture_at: AtomicI64::new(0),
+            last_capture_error: Mutex::new(None),
         })
     }
 }

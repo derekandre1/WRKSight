@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 import {
+  Activity,
   CalendarDays,
   CalendarRange,
   LayoutDashboard,
@@ -20,6 +21,7 @@ const items = [
   { to: "/goals", label: "Goals", icon: Target },
   { to: "/privacy", label: "Privacy", icon: ShieldCheck },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
+  { to: "/diagnostics", label: "Diagnostics", icon: Activity },
 ];
 
 export function Sidebar() {
