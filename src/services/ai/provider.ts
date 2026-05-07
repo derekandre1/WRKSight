@@ -6,7 +6,7 @@
  *   2. Return structured, schema-validated output.
  *   3. Be stateless — the app decides when to call.
  *
- * Every implementation is swapped via the `ai_provider` setting.
+ * Every implementation is swapped via the `ai_active_provider` setting.
  */
 
 import type { NormalizedSession } from "@/types/activity";
