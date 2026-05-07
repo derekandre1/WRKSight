@@ -111,3 +111,94 @@ describe("connection tests — HTTP status mapping", () => {
     expect(r.message).toContain("ECONNREFUSED");
   });
 });
+
+describe("anthropic — error-envelope routing (regression)", () => {
+  it("sends the dangerous-direct-browser-access header", async () => {
+    let captured: Headers | null = null;
+    __setNetworkFetch(async (_url, init) => {
+      captured = new Headers(init?.headers);
+      return fakeResponse(200);
+    });
+    await testAnthropic({ apiKey: "  sk-ant-test  ", baseUrl: "", model: "" });
+    expect(captured).not.toBeNull();
+    expect(captured!.get("anthropic-dangerous-direct-browser-access")).toBe("true");
+    expect(captured!.get("anthropic-version")).toBe("2023-06-01");
+    // Trims whitespace before sending.
+    expect(captured!.get("x-api-key")).toBe("sk-ant-test");
+  });
+
+  it("401 with permission_error body → request_failed (NOT invalid_key)", async () => {
+    __setNetworkFetch(async () =>
+      fakeResponse(401, {
+        type: "error",
+        error: {
+          type: "permission_error",
+          message:
+            "Direct browser access is not allowed. Add the anthropic-dangerous-direct-browser-access header.",
+        },
+      })
+    );
+    const r = await testAnthropic({ apiKey: "valid-key", baseUrl: "", model: "" });
+    expect(r.status).toBe("request_failed");
+    expect(r.message).toMatch(/Direct browser access/);
+    expect(r.message).not.toMatch(/^API key was rejected/);
+  });
+
+  it("401 with authentication_error body → invalid_key with the real message", async () => {
+    __setNetworkFetch(async () =>
+      fakeResponse(401, {
+        type: "error",
+        error: { type: "authentication_error", message: "invalid x-api-key" },
+      })
+    );
+    const r = await testAnthropic({ apiKey: "bad", baseUrl: "", model: "" });
+    expect(r.status).toBe("invalid_key");
+    expect(r.message).toBe("invalid x-api-key");
+  });
+
+  it("400 invalid_request_error → request_failed with detail", async () => {
+    __setNetworkFetch(async () =>
+      fakeResponse(400, {
+        type: "error",
+        error: {
+          type: "invalid_request_error",
+          message: "messages: array required",
+        },
+      })
+    );
+    const r = await testAnthropic({ apiKey: "k", baseUrl: "", model: "" });
+    expect(r.status).toBe("request_failed");
+    expect(r.message).toMatch(/messages: array required/);
+  });
+
+  it("404 not_found_error → request_failed (model id problem, not key)", async () => {
+    __setNetworkFetch(async () =>
+      fakeResponse(404, {
+        type: "error",
+        error: { type: "not_found_error", message: "model not found: claude-9000" },
+      })
+    );
+    const r = await testAnthropic({
+      apiKey: "k",
+      baseUrl: "",
+      model: "claude-9000",
+    });
+    expect(r.status).toBe("request_failed");
+    expect(r.message).toMatch(/model not found/);
+  });
+
+  it("401 with no JSON body still reports the status detail (last-resort fallback)", async () => {
+    // Simulate an upstream proxy returning text/plain.
+    __setNetworkFetch(
+      async () =>
+        new Response("Forbidden by intermediary", {
+          status: 401,
+          statusText: "Unauthorized",
+          headers: { "content-type": "text/plain" },
+        })
+    );
+    const r = await testAnthropic({ apiKey: "k", baseUrl: "", model: "" });
+    expect(r.status).toBe("invalid_key");
+    expect(r.message).toMatch(/401|Unauthorized/);
+  });
+});

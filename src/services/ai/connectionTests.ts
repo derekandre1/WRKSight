@@ -54,25 +54,110 @@ function classify(res: Response, onSuccess: string): TestResult {
 
 // ---------- Anthropic ----------------------------------------------
 
+/**
+ * Anthropic test.
+ *
+ * Why the request shape matters:
+ *   - The WRKSight webview sends an `Origin` header (`tauri://localhost`).
+ *     Anthropic treats *any* request with a browser-style Origin as
+ *     untrusted unless we opt in with
+ *     `anthropic-dangerous-direct-browser-access: true`. Without that
+ *     header Anthropic returns **HTTP 401** with a `permission_error`
+ *     body — even when the key is valid. We were mapping that 401 to
+ *     "invalid key" which was the wrong diagnosis.
+ *   - The flag is the right call here: WRKSight is a desktop app, the
+ *     key only ever lives in the user's own local SQLite, and there is
+ *     no third-party page that could exfiltrate it.
+ *
+ * We also trim the key in case the user pasted with whitespace.
+ */
 export async function testAnthropic(c: ProviderConfig): Promise<TestResult> {
-  if (!c.apiKey) return { status: "not_configured", message: "Missing API key." };
+  const apiKey = c.apiKey.trim();
+  if (!apiKey)
+    return { status: "not_configured", message: "Missing API key." };
+  const model = (c.model || "claude-haiku-4-5").trim();
+
   const out = await withNetwork(async (fetch) => {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "x-api-key": c.apiKey,
+        "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
+        "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: c.model || "claude-haiku-4-5",
+        model,
         max_tokens: 1,
         messages: [{ role: "user", content: "ping" }],
       }),
     });
-    return classify(res, "Connected to Anthropic.");
+    return await classifyAnthropicResponse(res);
   });
   return out as TestResult;
+}
+
+/**
+ * Anthropic returns a structured error envelope:
+ *   { type: "error", error: { type: "...", message: "..." } }
+ *
+ * `error.type` tells us exactly what's wrong; the HTTP status alone is
+ * ambiguous (401 can mean bad key OR missing browser-access header). We
+ * use the type to route to the right ConnectionStatus and surface
+ * Anthropic's verbatim message so the user sees the real cause.
+ */
+async function classifyAnthropicResponse(res: Response): Promise<TestResult> {
+  if (res.ok) return { status: "success", message: "Connected to Anthropic." };
+
+  let body: { error?: { type?: string; message?: string } } | null = null;
+  try {
+    body = await res.json();
+  } catch {
+    // Anthropic always JSON-encodes errors; if parsing fails we likely
+    // hit a proxy or a network appliance. Fall through.
+  }
+  const errType = body?.error?.type;
+  const errMsg = body?.error?.message?.trim();
+  const detail = errMsg ?? `${res.status} ${res.statusText}`.trim();
+
+  switch (errType) {
+    case "authentication_error":
+      return { status: "invalid_key", message: errMsg ?? "API key was rejected." };
+    case "permission_error":
+      return {
+        status: "request_failed",
+        message: errMsg
+          ? `Permission denied: ${errMsg}`
+          : "Permission denied. The request reached Anthropic but was refused — check that the key has access to this model.",
+      };
+    case "invalid_request_error":
+      return {
+        status: "request_failed",
+        message: errMsg
+          ? `Invalid request: ${errMsg}`
+          : `Invalid request (HTTP ${res.status}).`,
+      };
+    case "not_found_error":
+      return {
+        status: "request_failed",
+        message: errMsg ?? "Endpoint or model not found. Check the model id.",
+      };
+    case "rate_limit_error":
+      return {
+        status: "request_failed",
+        message: errMsg ?? "Rate limited — slow down and retry.",
+      };
+    case "api_error":
+    case "overloaded_error":
+      return { status: "request_failed", message: errMsg ?? "Anthropic API error." };
+  }
+
+  // No structured envelope (proxy, network appliance, etc.). Fall back to
+  // status-based mapping but ALWAYS preserve any text we got, so the user
+  // never sees a bare "API key rejected" when the real issue was upstream.
+  if (res.status === 401 || res.status === 403)
+    return { status: "invalid_key", message: detail };
+  return { status: "request_failed", message: detail };
 }
 
 // ---------- OpenAI / OpenRouter / OpenAI-compatible ----------------
