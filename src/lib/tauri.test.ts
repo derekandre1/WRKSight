@@ -10,7 +10,7 @@ describe("ipc mock backend", () => {
     const pairs = await ipc.getSettings();
     const map = Object.fromEntries(pairs);
     expect(map.tracking_paused).toBe("true");
-    expect(map.ai_provider).toBe("mock");
+    expect(map.ai_active_provider).toBe("mock");
   });
 
   it("persists a setting across calls", async () => {

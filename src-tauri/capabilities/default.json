@@ -6,6 +6,18 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "os:default"
+    "os:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://api.anthropic.com/*" },
+        { "url": "https://api.openai.com/*" },
+        { "url": "https://generativelanguage.googleapis.com/*" },
+        { "url": "https://openrouter.ai/*" },
+        { "url": "http://localhost:*/*" },
+        { "url": "http://127.0.0.1:*/*" },
+        { "url": "https://*/*" }
+      ]
+    }
   ]
 }
