@@ -26,6 +26,11 @@ export class AnthropicAiProvider implements AiProvider {
     // TODO: POST api.anthropic.com/v1/messages with a cached system prompt
     //       carrying the category rules and tool/JSON-mode constraint
     //       matching ClassificationSchema. Validate every response.
+    //
+    // IMPORTANT: include header `anthropic-dangerous-direct-browser-access: true`.
+    // Tauri webview requests ship an `Origin` header, so Anthropic treats
+    // them as browser calls and returns HTTP 401 (permission_error) without
+    // this opt-in — even when the key is valid. See connectionTests.ts.
     return this.fallback.classifyBatch(sessions);
   }
 
