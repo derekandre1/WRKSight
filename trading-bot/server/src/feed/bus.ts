@@ -10,6 +10,7 @@ export type FeedEventType =
   | 'decision'
   | 'order'
   | 'risk'
+  | 'news'
   | 'state'
   | 'error'
   | 'log';

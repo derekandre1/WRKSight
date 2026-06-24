@@ -4,6 +4,7 @@ import { state } from '../state.js';
 import { bus } from '../feed/bus.js';
 import { activeAdapter } from '../brokers/index.js';
 import { processCandidate } from '../engine/pipeline.js';
+import { runSentinel } from './sentinel.js';
 import type { Candidate, CandidateSource } from '../types.js';
 
 function makeCandidate(symbol: string, side: 'buy' | 'sell', source: CandidateSource, condition: string): Candidate {
@@ -52,12 +53,13 @@ export function startSchedulers(): void {
     }
   });
 
-  // Sentinel — lightweight always-on heartbeat. In a full build this would poll
-  // a news/price feed; here it just emits a heartbeat so the loop is visible.
+  // Sentinel — always-on, polls a real price + news feed every 5 minutes,
+  // surfaces fresh headlines, and routes urgent price-move candidates.
   cron.schedule('*/5 * * * *', () => {
-    if (state.paused) return;
-    bus.emitEvent('log', 'Sentinel heartbeat — monitoring news & price moves.');
+    void runSentinel();
   });
+  // Kick off an immediate first sweep so the feed isn't empty until :05.
+  void runSentinel();
 
   bus.emitEvent('log', 'Schedulers started (morning research, intraday reviews, sentinel).');
 }

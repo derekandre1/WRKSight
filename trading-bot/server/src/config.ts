@@ -34,6 +34,16 @@ export const config = {
 
   robinhoodMcpUrl: str('ROBINHOOD_MCP_URL', 'https://agent.robinhood.com/mcp/trading'),
 
+  // Market-data feed for the sentinel. Finnhub when a key is set; otherwise a
+  // keyless Yahoo Finance fallback.
+  finnhubApiKey: str('FINNHUB_API_KEY'),
+  sentinel: {
+    enabled: str('SENTINEL_ENABLED', 'true') !== 'false',
+    news: str('SENTINEL_NEWS', 'true') !== 'false',
+    movePct: num('SENTINEL_MOVE_PCT', 0.03),
+    retriggerMs: num('SENTINEL_RETRIGGER_MS', 30 * 60 * 1000),
+  },
+
   risk: {
     maxExposurePct: num('MAX_EXPOSURE_PCT', 0.5),
     maxTradePct: num('MAX_TRADE_PCT', 0.1),

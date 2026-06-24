@@ -60,6 +60,9 @@ You need a local MongoDB (`mongodb://localhost:27017` by default) — or set
 | `MAX_TRADE_PCT` | `0.1` | Risk: max single-trade fraction. |
 | `DAILY_LOSS_LIMIT_PCT` | `0.05` | Risk: daily loss circuit breaker. |
 | `CONVICTION_THRESHOLD` | `0.65` | Min Claude conviction to route an order. |
+| `FINNHUB_API_KEY` | — | Optional. Enables Finnhub for sentinel quotes + news; else keyless Yahoo. |
+| `SENTINEL_MOVE_PCT` | `0.03` | Intraday move that flags an urgent candidate. |
+| `SENTINEL_RETRIGGER_MS` | `1800000` | Min time between sentinel triggers per symbol. |
 
 ## TradingView webhook
 
@@ -79,6 +82,29 @@ with a JSON body. The shared secret can be sent as the `secret` field or the
 
 A raw alert is **never** traded directly — it becomes a candidate and is routed
 through the decision engine and risk gate like any other signal.
+
+## Sentinel (real price + news feed)
+
+The always-on sentinel polls a real market-data provider every 5 minutes,
+surfaces fresh headlines to the live feed (`news` filter), and routes urgent
+price-move candidates through the pipeline. Provider is pluggable:
+
+- **Finnhub** when `FINNHUB_API_KEY` is set — clean JSON quotes + company news
+  (free tier at https://finnhub.io).
+- **Yahoo Finance** keyless fallback — quotes via the v8 chart endpoint, news
+  via the per-symbol RSS feed.
+
+> Note: Yahoo's public endpoints often block datacenter / cloud egress IPs
+> (you'll see `403`/connection errors in the live feed). For any hosted
+> deployment, set `FINNHUB_API_KEY` — the sentinel logs each failed symbol and
+> keeps sweeping, so a blocked provider degrades cleanly rather than crashing.
+
+Each sweep pulls quotes + recent headlines for every watchlist symbol. A move
+beyond `SENTINEL_MOVE_PCT` (default 3%) **during market hours** flags a
+candidate: a large up-move → **buy** (momentum); a large down-move → **sell**
+only if the position is held. Per-symbol retriggering is throttled by
+`SENTINEL_RETRIGGER_MS`. The decision engine and risk gate still decide whether
+anything trades.
 
 ## Going live (Robinhood agentic)
 

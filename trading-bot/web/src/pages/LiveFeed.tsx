@@ -7,12 +7,13 @@ const typeStyle: Record<string, string> = {
   decision: 'text-text',
   order: 'text-profit',
   risk: 'text-loss',
+  news: 'text-amber-400',
   state: 'text-accent',
   error: 'text-loss',
   log: 'text-muted',
 };
 
-const FILTERS = ['all', 'webhook', 'candidate', 'decision', 'order', 'risk', 'error'] as const;
+const FILTERS = ['all', 'webhook', 'candidate', 'news', 'decision', 'order', 'risk', 'error'] as const;
 
 export function LiveFeed({ feed }: { feed: FeedEvent[] }) {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('all');
