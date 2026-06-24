@@ -19,47 +19,48 @@ function makeCandidate(symbol: string, side: 'buy' | 'sell', source: CandidateSo
 }
 
 /**
- * Scheduled workflows:
- *  - Morning deep research across the watchlist (weekdays 9:15am ET-ish)
- *  - Periodic intraday position reviews (every 30 min during market hours)
- *  - Always-on sentinel polling for urgent candidates (every 5 min)
+ * Scheduled workflows, tuned for a DAILY/WEEKLY horizon (no intraday churn):
+ *  - Morning deep research across the watchlist (weekdays ~9:15am ET)
+ *  - One position review near the close (weekdays ~3:45pm ET)
+ *  - Sentinel sweeps hourly during the session for daily/weekly moves + news
  *
  * Each produces candidates and routes them through the same pipeline; the
  * decision engine + risk gate decide whether anything actually trades.
  */
 export function startSchedulers(): void {
   // Morning research — propose a buy candidate per watchlist name to be vetted.
+  // 13:15 UTC ≈ 9:15am ET.
   cron.schedule('15 13 * * 1-5', async () => {
     if (state.paused) return;
-    bus.emitEvent('log', 'Morning deep research run starting.');
+    bus.emitEvent('log', `Morning deep research run starting (${state.timeframe} horizon).`);
     for (const symbol of state.watchlist) {
-      await processCandidate(makeCandidate(symbol, 'buy', 'morning_research', 'Morning deep-research review'));
+      await processCandidate(makeCandidate(symbol, 'buy', 'morning_research', `Morning ${state.timeframe} research review`));
     }
   });
 
-  // Intraday position reviews — re-examine open positions.
-  cron.schedule('*/30 13-20 * * 1-5', async () => {
+  // End-of-day position review — re-examine open positions once, near the close.
+  // 19:45 UTC ≈ 3:45pm ET. The engine decides trim/exit/hold on the active horizon.
+  cron.schedule('45 19 * * 1-5', async () => {
     if (state.paused) return;
     try {
       const positions = await activeAdapter().getPositions();
       if (positions.length === 0) return;
-      bus.emitEvent('log', `Intraday review of ${positions.length} position(s).`);
+      bus.emitEvent('log', `End-of-day review of ${positions.length} position(s).`);
       for (const p of positions) {
-        // Review whether to trim/exit; the engine decides buy/sell/hold.
-        await processCandidate(makeCandidate(p.symbol, 'sell', 'intraday_review', 'Intraday position review'));
+        await processCandidate(makeCandidate(p.symbol, 'sell', 'intraday_review', 'End-of-day position review'));
       }
     } catch (err) {
-      bus.emitEvent('error', `Intraday review failed: ${(err as Error).message}`);
+      bus.emitEvent('error', `Position review failed: ${(err as Error).message}`);
     }
   });
 
-  // Sentinel — always-on, polls a real price + news feed every 5 minutes,
-  // surfaces fresh headlines, and routes urgent price-move candidates.
-  cron.schedule('*/5 * * * *', () => {
+  // Sentinel — polls a real price + news feed hourly, surfaces fresh headlines,
+  // and routes candidates whose daily/weekly move clears the threshold.
+  cron.schedule('0 * * * *', () => {
     void runSentinel();
   });
-  // Kick off an immediate first sweep so the feed isn't empty until :05.
+  // Kick off an immediate first sweep so the feed isn't empty at startup.
   void runSentinel();
 
-  bus.emitEvent('log', 'Schedulers started (morning research, intraday reviews, sentinel).');
+  bus.emitEvent('log', `Schedulers started (morning research, EOD review, hourly sentinel; ${state.timeframe} horizon).`);
 }

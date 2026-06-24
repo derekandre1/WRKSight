@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
-import type { Candidate, Decision, Quote, Position } from '../types.js';
+import type { Candidate, Decision, Quote, Position, Timeframe } from '../types.js';
 
 const client = config.anthropicApiKey ? new Anthropic({ apiKey: config.anthropicApiKey }) : null;
 
@@ -21,10 +21,19 @@ const SYSTEM = `You are the decision engine for an automated equities trading bo
 You receive a single trade CANDIDATE plus a market snapshot, and you return a
 conviction-scored recommendation.
 
+This bot trades on a DAILY/WEEKLY horizon — swing and position trades held for
+days to weeks, NOT intraday scalps. Reason accordingly: weigh multi-day trend,
+the durability of the thesis over that horizon, and whether recent news changes
+the medium-term picture. Ignore minute-to-minute noise.
+
 Rules:
-- conviction is a probability in [0,1] that acting on this candidate now is +EV.
+- conviction is a probability in [0,1] that acting on this candidate now is +EV
+  over the stated timeframe.
 - Be skeptical. A raw alert is not a reason to trade. Weigh the thesis, current
-  exposure, the position you already hold, and obvious risks.
+  exposure, the position you already hold, recent news sentiment, and risks.
+- Factor the provided NEWS: clearly positive catalysts raise conviction for buys
+  (and lower it for sells); negative/legal/guidance-cut news does the reverse.
+  Stale or irrelevant headlines should not move conviction.
 - If the case is weak, ambiguous, or you'd need information you don't have,
   return action "hold" with low conviction.
 - Only recommend the candidate's own side (buy candidates -> buy or hold; sell
@@ -36,6 +45,9 @@ export interface SnapshotContext {
   quote: Quote;
   position?: Position;
   account: { cash: number; equity: number };
+  timeframe: Timeframe;
+  /** Recent headlines for the symbol, for sentiment context. */
+  news?: string[];
 }
 
 /**
@@ -47,6 +59,7 @@ export async function decide(candidate: Candidate, ctx: SnapshotContext): Promis
 
   const userContent = JSON.stringify(
     {
+      timeframe: ctx.timeframe,
       candidate: {
         symbol: candidate.symbol,
         side: candidate.side,
@@ -60,6 +73,7 @@ export async function decide(candidate: Candidate, ctx: SnapshotContext): Promis
           : null,
         account: ctx.account,
       },
+      recentNews: ctx.news?.slice(0, 6) ?? [],
     },
     null,
     2,
@@ -129,13 +143,33 @@ function heuristicDecision(candidate: Candidate, ctx: SnapshotContext): Decision
     reasons.push('Already hold this name; adding increases concentration.');
   }
 
+  // Light news-sentiment nudge (keyword-based) aligned to the candidate side.
+  const sentiment = newsSentiment(ctx.news ?? []);
+  if (sentiment !== 0) {
+    const aligned = candidate.side === 'buy' ? sentiment : -sentiment;
+    conviction += aligned * 0.1;
+    reasons.push(`News sentiment ${sentiment > 0 ? 'positive' : 'negative'} (${candidate.side}).`);
+  }
+
   conviction = clamp01(conviction);
   // Return the directional lean + conviction; the pipeline's (runtime) conviction
   // gate decides whether this actually routes. Don't gate here on static config.
   return {
     action: candidate.side,
     conviction,
-    reasoning: `[Offline heuristic — no ANTHROPIC_API_KEY set] ${reasons.join(' ') || 'No strong signal.'}`,
+    reasoning: `[Offline heuristic — no ANTHROPIC_API_KEY set, ${ctx.timeframe} horizon] ${reasons.join(' ') || 'No strong signal.'}`,
     risks: 'Heuristic scoring only; not a substitute for the Claude decision engine.',
   };
+}
+
+/** Crude headline sentiment: +1 positive, -1 negative, 0 neutral/mixed. */
+export function newsSentiment(headlines: string[]): number {
+  const pos = /\b(beats?|surge|soar|rally|upgrade|record|raises?|jumps?|strong|outperform|tops?)\b/i;
+  const neg = /\b(miss(es|ed)?|plunge|slump|downgrade|cuts?|lawsuit|probe|recall|falls?|warns?|weak|slash(es|ed)?)\b/i;
+  let score = 0;
+  for (const h of headlines) {
+    if (pos.test(h)) score += 1;
+    if (neg.test(h)) score -= 1;
+  }
+  return score > 0 ? 1 : score < 0 ? -1 : 0;
 }

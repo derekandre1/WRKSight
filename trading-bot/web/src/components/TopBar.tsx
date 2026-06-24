@@ -35,6 +35,11 @@ export function TopBar({ state }: { state: BotState | null }) {
             }
           />
           <Badge
+            label="Horizon"
+            value={state.timeframe === 'weekly' ? 'Weekly' : 'Daily'}
+            className="bg-panel2 text-text border-edge capitalize"
+          />
+          <Badge
             label="Market"
             value={state.market.label}
             className={

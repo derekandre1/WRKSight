@@ -2,6 +2,9 @@
 
 export type AdapterKind = 'SIM' | 'PAPER' | 'LIVE';
 
+/** Trading horizon the bot reasons and acts on. */
+export type Timeframe = 'daily' | 'weekly';
+
 export type OrderSide = 'buy' | 'sell';
 
 export type CandidateSource = 'tradingview' | 'morning_research' | 'intraday_review' | 'sentinel';

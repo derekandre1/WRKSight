@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 export interface BotState {
   paused: boolean;
   adapter: 'SIM' | 'PAPER' | 'LIVE';
+  timeframe: 'daily' | 'weekly';
   risk: {
     maxExposurePct: number;
     maxTradePct: number;

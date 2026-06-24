@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
-import { state, publicState, setAdapter, setPaused } from '../state.js';
+import { state, publicState, setAdapter, setPaused, setTimeframe } from '../state.js';
 import { activeAdapter } from '../brokers/index.js';
 import { bus } from '../feed/bus.js';
 import { marketStatus } from '../marketHours.js';
@@ -92,6 +92,15 @@ apiRouter.get('/metrics', async (_req, res) => {
 apiRouter.post('/pause', (req, res) => {
   const paused = Boolean((req.body as { paused?: boolean }).paused);
   setPaused(paused);
+  res.json({ ok: true, ...publicState() });
+});
+
+apiRouter.post('/timeframe', (req, res) => {
+  const tf = String((req.body as { timeframe?: string }).timeframe ?? '').toLowerCase();
+  if (tf !== 'daily' && tf !== 'weekly') {
+    return res.status(400).json({ ok: false, error: 'timeframe must be daily or weekly.' });
+  }
+  setTimeframe(tf);
   res.json({ ok: true, ...publicState() });
 });
 

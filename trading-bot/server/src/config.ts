@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import type { AdapterKind } from './types.js';
+import type { AdapterKind, Timeframe } from './types.js';
 
 function num(name: string, fallback: number): number {
   const v = process.env[name];
@@ -28,6 +28,10 @@ export const config = {
 
   brokerAdapter: (str('BROKER_ADAPTER', 'SIM').toUpperCase() as AdapterKind),
 
+  // Trading horizon. Drives cadence, move thresholds, and how the decision
+  // engine reasons (daily/weekly swing/position trading, not intraday).
+  timeframe: (str('TIMEFRAME', 'daily').toLowerCase() as Timeframe),
+
   alpacaKeyId: str('ALPACA_KEY_ID'),
   alpacaSecretKey: str('ALPACA_SECRET_KEY'),
   alpacaBaseUrl: str('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets'),
@@ -40,8 +44,11 @@ export const config = {
   sentinel: {
     enabled: str('SENTINEL_ENABLED', 'true') !== 'false',
     news: str('SENTINEL_NEWS', 'true') !== 'false',
-    movePct: num('SENTINEL_MOVE_PCT', 0.03),
-    retriggerMs: num('SENTINEL_RETRIGGER_MS', 30 * 60 * 1000),
+    // Move thresholds (fraction) per horizon — daily moves are smaller than
+    // weekly. The active timeframe selects which one gates a candidate.
+    dailyMovePct: num('SENTINEL_DAILY_MOVE_PCT', 0.03),
+    weeklyMovePct: num('SENTINEL_WEEKLY_MOVE_PCT', 0.07),
+    retriggerMs: num('SENTINEL_RETRIGGER_MS', 6 * 60 * 60 * 1000),
   },
 
   risk: {
@@ -49,7 +56,8 @@ export const config = {
     maxTradePct: num('MAX_TRADE_PCT', 0.1),
     dailyLossLimitPct: num('DAILY_LOSS_LIMIT_PCT', 0.05),
     convictionThreshold: num('CONVICTION_THRESHOLD', 0.65),
-    tradeCooldownMs: num('TRADE_COOLDOWN_MS', 15 * 60 * 1000),
+    // Daily/weekly horizon: avoid churning the same name. Default 1 day.
+    tradeCooldownMs: num('TRADE_COOLDOWN_MS', 24 * 60 * 60 * 1000),
   },
 
   simStartingCash: num('SIM_STARTING_CASH', 100_000),

@@ -60,9 +60,11 @@ You need a local MongoDB (`mongodb://localhost:27017` by default) — or set
 | `MAX_TRADE_PCT` | `0.1` | Risk: max single-trade fraction. |
 | `DAILY_LOSS_LIMIT_PCT` | `0.05` | Risk: daily loss circuit breaker. |
 | `CONVICTION_THRESHOLD` | `0.65` | Min Claude conviction to route an order. |
+| `TIMEFRAME` | `daily` | Trading horizon: `daily` or `weekly`. |
 | `FINNHUB_API_KEY` | — | Optional. Enables Finnhub for sentinel quotes + news; else keyless Yahoo. |
-| `SENTINEL_MOVE_PCT` | `0.03` | Intraday move that flags an urgent candidate. |
-| `SENTINEL_RETRIGGER_MS` | `1800000` | Min time between sentinel triggers per symbol. |
+| `SENTINEL_DAILY_MOVE_PCT` | `0.03` | Daily move that flags a candidate. |
+| `SENTINEL_WEEKLY_MOVE_PCT` | `0.07` | Weekly move that flags a candidate. |
+| `SENTINEL_RETRIGGER_MS` | `21600000` | Min time between sentinel triggers per symbol (6h). |
 
 ## TradingView webhook
 
@@ -99,12 +101,28 @@ price-move candidates through the pipeline. Provider is pluggable:
 > deployment, set `FINNHUB_API_KEY` — the sentinel logs each failed symbol and
 > keeps sweeping, so a blocked provider degrades cleanly rather than crashing.
 
-Each sweep pulls quotes + recent headlines for every watchlist symbol. A move
-beyond `SENTINEL_MOVE_PCT` (default 3%) **during market hours** flags a
-candidate: a large up-move → **buy** (momentum); a large down-move → **sell**
-only if the position is held. Per-symbol retriggering is throttled by
-`SENTINEL_RETRIGGER_MS`. The decision engine and risk gate still decide whether
-anything trades.
+Each hourly sweep pulls quotes + recent headlines for every watchlist symbol and
+evaluates the return over the **active timeframe** (see below). A move beyond the
+horizon's threshold **during market hours** flags a candidate: a large up-move →
+**buy** (momentum); a large down-move → **sell** only if the position is held.
+Per-symbol retriggering is throttled by `SENTINEL_RETRIGGER_MS` (default 6h).
+The decision engine and risk gate still decide whether anything trades.
+
+## Trading horizon (daily / weekly)
+
+The bot trades on a **daily/weekly** swing/position horizon, not intraday. Set
+`TIMEFRAME` (or switch live in Settings). It changes:
+
+- **Sentinel thresholds** — `SENTINEL_DAILY_MOVE_PCT` (default 3%) for daily,
+  `SENTINEL_WEEKLY_MOVE_PCT` (default 7%) for weekly (computed from a ~5-session
+  daily-close return; falls back to the daily change if a close series isn't
+  available from the provider).
+- **Cadence** — morning research once daily, one position review near the close,
+  hourly sentinel sweeps. No intraday churn. Default trade cooldown is 1 day.
+- **Decision engine** — Claude is told its horizon is daily/weekly and reasons on
+  multi-day trend and the durability of the thesis, and it **factors recent news
+  sentiment** into conviction (positive catalysts raise buy conviction, negative
+  news lowers it). Recent headlines are passed with every candidate.
 
 ## Going live (Robinhood agentic)
 

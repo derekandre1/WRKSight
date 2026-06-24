@@ -4,10 +4,10 @@ import { state } from '../state.js';
 import { bus } from '../feed/bus.js';
 import { activeAdapter } from '../brokers/index.js';
 import { processCandidate } from '../engine/pipeline.js';
-import { marketData, type NewsItem, type SymbolQuote } from './marketData.js';
+import { marketData, weeklyReturnPct, type NewsItem, type SymbolQuote } from './marketData.js';
 import { addNews } from './newsStore.js';
 import { marketStatus } from '../marketHours.js';
-import type { Candidate } from '../types.js';
+import type { Candidate, Timeframe } from '../types.js';
 
 /** Per-symbol bookkeeping so the sentinel doesn't spam the pipeline. */
 const lastTriggeredAt: Record<string, number> = {};
@@ -19,49 +19,52 @@ export interface MoveDecision {
 }
 
 /**
- * Pure decision: given a quote, whether we hold the name, the configured move
- * threshold and a fresh headline, decide if a sentinel candidate should fire
- * and on which side. Returns null if nothing is actionable.
+ * Pure decision: given the return over the active timeframe, whether we hold
+ * the name, and the configured threshold, decide whether a sentinel candidate
+ * should fire and on which side. Returns null if nothing is actionable.
  *
- *  - up move >= threshold        -> buy (momentum)
+ *  - up move >= threshold             -> buy (momentum)
  *  - down move <= -threshold AND held -> sell (risk management)
- *  - down move and not held      -> no actionable side; skip
+ *  - down move and not held           -> no actionable side; skip
  *
  * The decision engine + risk gate still decide whether anything trades.
  */
 export function moveToCandidate(args: {
   quote: SymbolQuote;
+  returnPct: number;
   held: boolean;
   movePct: number; // fraction, e.g. 0.03
+  timeframe: Timeframe;
   topHeadline?: string;
 }): MoveDecision | null {
-  const { quote, held, movePct, topHeadline } = args;
+  const { quote, returnPct, held, movePct, timeframe, topHeadline } = args;
   const thresholdPct = movePct * 100;
-  const chg = quote.changePct;
-  if (!Number.isFinite(chg) || Math.abs(chg) < thresholdPct) return null;
+  if (!Number.isFinite(returnPct) || Math.abs(returnPct) < thresholdPct) return null;
 
   let side: 'buy' | 'sell';
-  if (chg >= thresholdPct) side = 'buy';
+  if (returnPct >= thresholdPct) side = 'buy';
   else if (held) side = 'sell';
   else return null;
 
-  const move = `${chg > 0 ? '+' : ''}${chg.toFixed(1)}% intraday (≈$${quote.price.toFixed(2)})`;
+  const move = `${returnPct > 0 ? '+' : ''}${returnPct.toFixed(1)}% ${timeframe} (≈$${quote.price.toFixed(2)})`;
   const condition = topHeadline
-    ? `Sentinel: ${quote.symbol} ${move} · News: ${topHeadline}`
-    : `Sentinel: ${quote.symbol} ${move}`;
+    ? `Sentinel (${timeframe}): ${quote.symbol} ${move} · News: ${topHeadline}`
+    : `Sentinel (${timeframe}): ${quote.symbol} ${move}`;
   return { side, condition };
 }
 
 /**
  * One sentinel sweep: poll real prices + news for the watchlist, surface fresh
- * headlines to the live feed, and route urgent price-move candidates through
- * the pipeline. Gated to market hours for price triggers; resilient to
- * per-symbol provider failures.
+ * headlines, and route candidates whose move over the ACTIVE TIMEFRAME (daily
+ * or weekly) clears the threshold. Price triggers are gated to market hours;
+ * resilient to per-symbol provider failures.
  */
 export async function runSentinel(): Promise<void> {
   if (state.paused || !config.sentinel.enabled) return;
   const { open } = marketStatus();
   const provider = marketData();
+  const timeframe = state.timeframe;
+  const movePct = timeframe === 'weekly' ? config.sentinel.weeklyMovePct : config.sentinel.dailyMovePct;
 
   let heldSymbols = new Set<string>();
   try {
@@ -76,9 +79,10 @@ export async function runSentinel(): Promise<void> {
 
   for (const symbol of state.watchlist) {
     try {
-      const [quote, news] = await Promise.all([
+      const [quote, news, closes] = await Promise.all([
         provider.getQuote(symbol),
         config.sentinel.news ? provider.getNews(symbol) : Promise.resolve([] as NewsItem[]),
+        timeframe === 'weekly' ? provider.getDailyCloses(symbol) : Promise.resolve([] as number[]),
       ]);
       scanned += 1;
 
@@ -92,18 +96,23 @@ export async function runSentinel(): Promise<void> {
       }
 
       if (!quote) continue;
-
-      // Price-move triggers only during market hours.
-      if (!open) continue;
+      if (!open) continue; // price-move triggers only during market hours
 
       // Per-symbol retrigger cooldown so we don't fire every sweep.
       const last = lastTriggeredAt[symbol];
       if (last && Date.now() - last < config.sentinel.retriggerMs) continue;
 
+      // Return over the active timeframe. Weekly falls back to the daily change
+      // when a daily close series isn't available from the provider.
+      const weekly = timeframe === 'weekly' ? weeklyReturnPct(closes) : null;
+      const returnPct = timeframe === 'weekly' && weekly !== null ? weekly : quote.changePct;
+
       const decision = moveToCandidate({
         quote,
+        returnPct,
         held: heldSymbols.has(symbol),
-        movePct: config.sentinel.movePct,
+        movePct,
+        timeframe,
         topHeadline: news[0]?.headline,
       });
       if (!decision) continue;
@@ -116,10 +125,10 @@ export async function runSentinel(): Promise<void> {
         symbol,
         side: decision.side,
         condition: decision.condition,
-        raw: { quote, news: news.slice(0, 3) },
+        raw: { quote, returnPct, timeframe, news: news.slice(0, 3) },
         createdAt: new Date().toISOString(),
       };
-      bus.emitEvent('candidate', `Sentinel flagged ${decision.side.toUpperCase()} ${symbol} (${quote.changePct.toFixed(1)}%)`, candidate);
+      bus.emitEvent('candidate', `Sentinel flagged ${decision.side.toUpperCase()} ${symbol} (${returnPct.toFixed(1)}% ${timeframe})`, candidate);
       await processCandidate(candidate);
     } catch (err) {
       bus.emitEvent('error', `Sentinel ${symbol} failed: ${(err as Error).message}`);
@@ -131,6 +140,6 @@ export async function runSentinel(): Promise<void> {
 
   bus.emitEvent(
     'log',
-    `Sentinel sweep: scanned ${scanned}/${state.watchlist.length}, ${newsCount} new headline(s), ${fired} candidate(s)${open ? '' : ' (market closed — price triggers paused)'}.`,
+    `Sentinel sweep (${timeframe}): scanned ${scanned}/${state.watchlist.length}, ${newsCount} new headline(s), ${fired} candidate(s)${open ? '' : ' (market closed — price triggers paused)'}.`,
   );
 }

@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import type { AdapterKind } from './types.js';
+import type { AdapterKind, Timeframe } from './types.js';
 import { bus } from './feed/bus.js';
 
 /**
@@ -10,6 +10,7 @@ import { bus } from './feed/bus.js';
 export interface RuntimeState {
   paused: boolean;
   adapter: AdapterKind;
+  timeframe: Timeframe;
   risk: {
     maxExposurePct: number;
     maxTradePct: number;
@@ -31,6 +32,7 @@ export interface RuntimeState {
 export const state: RuntimeState = {
   paused: false,
   adapter: config.brokerAdapter,
+  timeframe: config.timeframe === 'weekly' ? 'weekly' : 'daily',
   risk: { ...config.risk },
   watchlist: [...config.watchlist],
   dayStartEquity: null,
@@ -57,10 +59,16 @@ export function setPaused(paused: boolean): void {
   bus.emitEvent('state', paused ? 'Bot paused (kill switch).' : 'Bot resumed.', { paused });
 }
 
+export function setTimeframe(next: Timeframe): void {
+  state.timeframe = next;
+  bus.emitEvent('state', `Trading horizon set to ${next}.`, { timeframe: next });
+}
+
 export function publicState() {
   return {
     paused: state.paused,
     adapter: state.adapter,
+    timeframe: state.timeframe,
     risk: state.risk,
     watchlist: state.watchlist,
     circuitBroken: state.circuitBroken,

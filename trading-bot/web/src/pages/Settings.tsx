@@ -38,6 +38,11 @@ export function Settings({ state }: { state: BotState | null }) {
     flash('Watchlist saved.');
   };
 
+  const switchTimeframe = async (timeframe: 'daily' | 'weekly') => {
+    await postJSON('/api/timeframe', { timeframe });
+    flash(`Trading horizon set to ${timeframe}.`);
+  };
+
   const switchAdapter = async (adapter: 'SIM' | 'PAPER' | 'LIVE') => {
     if (adapter === 'LIVE') {
       const ok = window.confirm(
@@ -74,6 +79,30 @@ export function Settings({ state }: { state: BotState | null }) {
               }`}
             >
               {a}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Trading horizon */}
+      <section className="card p-4">
+        <h2 className="font-semibold mb-1">Trading horizon</h2>
+        <p className="text-muted text-sm mb-3">
+          Daily/weekly swing &amp; position trading. Drives the sentinel's move
+          thresholds and how the decision engine reasons.
+        </p>
+        <div className="flex gap-2">
+          {(['daily', 'weekly'] as const).map((tf) => (
+            <button
+              key={tf}
+              onClick={() => switchTimeframe(tf)}
+              className={`px-4 py-2 rounded-lg border font-medium capitalize ${
+                state.timeframe === tf
+                  ? 'bg-accent/20 text-accent border-accent/50'
+                  : 'border-edge text-muted hover:text-text'
+              }`}
+            >
+              {tf}
             </button>
           ))}
         </div>

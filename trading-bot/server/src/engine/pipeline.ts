@@ -3,6 +3,7 @@ import { bus } from '../feed/bus.js';
 import { activeAdapter } from '../brokers/index.js';
 import { decide } from '../decision/engine.js';
 import { evaluateRisk, recordTrade } from '../risk/riskGate.js';
+import { getNews } from '../signals/newsStore.js';
 import { DecisionLog, OrderLog } from '../db/models.js';
 import { isMongoConnected } from '../db/mongo.js';
 import type { Candidate, OrderPreview } from '../types.js';
@@ -43,11 +44,21 @@ export async function processCandidate(candidate: Candidate): Promise<void> {
       position: position ?? null,
     };
 
+    // Recent headlines for sentiment context: prefer those carried on the
+    // candidate (e.g. from the sentinel), else the news store.
+    const candidateNews = ((candidate.raw?.news as Array<{ headline?: string }> | undefined) ?? [])
+      .map((n) => n.headline)
+      .filter((h): h is string => Boolean(h));
+    const storeNews = getNews({ symbol: candidate.symbol, limit: 6 }).map((n) => n.headline);
+    const news = [...new Set([...candidateNews, ...storeNews])].slice(0, 6);
+
     // 1. Decision engine.
     const decision = await decide(candidate, {
       quote,
       position,
       account: { cash: account.cash, equity: account.equity },
+      timeframe: state.timeframe,
+      news,
     });
     const threshold = state.risk.convictionThreshold;
     bus.emitEvent(

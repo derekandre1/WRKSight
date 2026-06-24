@@ -22,6 +22,8 @@ export interface MarketDataProvider {
   readonly name: string;
   getQuote(symbol: string): Promise<SymbolQuote | null>;
   getNews(symbol: string): Promise<NewsItem[]>;
+  /** Recent daily closes, oldest -> newest, for multi-day/weekly returns. Best-effort ([] if unavailable). */
+  getDailyCloses(symbol: string): Promise<number[]>;
 }
 
 const UA = { 'User-Agent': 'Mozilla/5.0 (compatible; ai-trading-bot/0.1)' };
@@ -66,6 +68,20 @@ export class FinnhubProvider implements MarketDataProvider {
       at: new Date(n.datetime * 1000).toISOString(),
     }));
   }
+
+  async getDailyCloses(symbol: string): Promise<number[]> {
+    // Finnhub's candle endpoint is premium on many plans; best-effort.
+    try {
+      const to = Math.floor(Date.now() / 1000);
+      const from = to - 40 * 24 * 60 * 60;
+      const c = await fetchJson<{ s: string; c?: number[] }>(
+        `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${to}&token=${this.apiKey}`,
+      );
+      return c.s === 'ok' && Array.isArray(c.c) ? c.c : [];
+    } catch {
+      return [];
+    }
+  }
 }
 
 /**
@@ -104,6 +120,28 @@ export class YahooProvider implements MarketDataProvider {
     const xml = await res.text();
     return parseRssHeadlines(xml, symbol).slice(0, 5);
   }
+
+  async getDailyCloses(symbol: string): Promise<number[]> {
+    const data = await fetchJson<{
+      chart: { result?: Array<{ indicators: { quote: Array<{ close?: Array<number | null> }> } }> };
+    }>(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=2mo`,
+    ).catch(() => null);
+    const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
+    return closes.filter((c): c is number => typeof c === 'number');
+  }
+}
+
+/**
+ * Percentage return over ~5 trading sessions (a week) from a daily close
+ * series (oldest -> newest). Returns null if there isn't enough history.
+ */
+export function weeklyReturnPct(closes: number[], sessions = 5): number | null {
+  if (closes.length < sessions + 1) return null;
+  const last = closes[closes.length - 1];
+  const prior = closes[closes.length - 1 - sessions];
+  if (!prior) return null;
+  return ((last - prior) / prior) * 100;
 }
 
 /** Minimal RSS <item> parser — enough for title/link/pubDate, no XML dep. */
