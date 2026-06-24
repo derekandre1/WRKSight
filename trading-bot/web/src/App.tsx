@@ -5,9 +5,10 @@ import { Overview } from './pages/Overview';
 import { Positions } from './pages/Positions';
 import { Journal } from './pages/Journal';
 import { LiveFeed } from './pages/LiveFeed';
+import { News } from './pages/News';
 import { Settings } from './pages/Settings';
 
-const TABS = ['Overview', 'Positions', 'Trade Journal', 'Live Feed', 'Settings'] as const;
+const TABS = ['Overview', 'Positions', 'News', 'Trade Journal', 'Live Feed', 'Settings'] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
@@ -34,6 +35,7 @@ export function App() {
       <main className="flex-1 p-4 max-w-7xl w-full mx-auto">
         {tab === 'Overview' && <Overview />}
         {tab === 'Positions' && <Positions />}
+        {tab === 'News' && <News />}
         {tab === 'Trade Journal' && <Journal />}
         {tab === 'Live Feed' && <LiveFeed feed={feed} />}
         {tab === 'Settings' && <Settings state={state} />}

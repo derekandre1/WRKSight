@@ -6,6 +6,7 @@ import { activeAdapter } from '../brokers/index.js';
 import { bus } from '../feed/bus.js';
 import { marketStatus } from '../marketHours.js';
 import { processCandidate } from '../engine/pipeline.js';
+import { getNews } from '../signals/newsStore.js';
 import { DecisionLog, OrderLog } from '../db/models.js';
 import { isMongoConnected } from '../db/mongo.js';
 import type { AdapterKind } from '../types.js';
@@ -46,6 +47,13 @@ apiRouter.get('/activity', async (_req, res) => {
   } catch (err) {
     res.status(503).json({ error: (err as Error).message });
   }
+});
+
+/** Recent headlines collected by the sentinel. */
+apiRouter.get('/news', (req, res) => {
+  const limit = Number(req.query.limit ?? 100);
+  const symbol = typeof req.query.symbol === 'string' ? req.query.symbol : undefined;
+  res.json(getNews({ limit, symbol }));
 });
 
 /** Trade journal — decision logs with full reasoning. */

@@ -5,6 +5,7 @@ import { bus } from '../feed/bus.js';
 import { activeAdapter } from '../brokers/index.js';
 import { processCandidate } from '../engine/pipeline.js';
 import { marketData, type NewsItem, type SymbolQuote } from './marketData.js';
+import { addNews } from './newsStore.js';
 import { marketStatus } from '../marketHours.js';
 import type { Candidate } from '../types.js';
 
@@ -81,7 +82,8 @@ export async function runSentinel(): Promise<void> {
       ]);
       scanned += 1;
 
-      // Surface fresh headlines (deduped by URL) to the live feed.
+      // Surface fresh headlines (deduped by URL) to the live feed + news panel.
+      if (news.length) addNews(news);
       const fresh = news.filter((n) => n.url && !seenNewsUrls.has(n.url));
       for (const n of fresh) {
         seenNewsUrls.add(n.url!);

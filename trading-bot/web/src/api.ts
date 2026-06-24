@@ -24,6 +24,14 @@ export interface FeedEvent {
   data?: unknown;
 }
 
+export interface NewsItem {
+  symbol: string;
+  headline: string;
+  url?: string;
+  source?: string;
+  at: string;
+}
+
 export interface Position {
   symbol: string;
   quantity: number;
