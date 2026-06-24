@@ -1,0 +1,9 @@
+# Secrets — never commit real env files
+.env
+.env.local
+server/.env
+web/.env
+
+# build output
+server/dist/
+web/dist/

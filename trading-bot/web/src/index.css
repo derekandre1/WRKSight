@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: theme('colors.base');
+  color: theme('colors.text');
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+}
+
+@layer components {
+  .card {
+    @apply bg-panel border border-edge rounded-xl;
+  }
+  .tab-btn {
+    @apply px-4 py-2 rounded-lg text-muted hover:text-text transition-colors;
+  }
+  .tab-btn-active {
+    @apply bg-panel2 text-text;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: theme('colors.edge');
+  border-radius: 6px;
+}
