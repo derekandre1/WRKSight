@@ -94,9 +94,24 @@ export interface Decision {
   risks?: string;
 }
 
+/** Tunable risk knobs. One profile per timeframe. */
+export interface RiskProfile {
+  maxExposurePct: number;
+  maxTradePct: number;
+  dailyLossLimitPct: number;
+  convictionThreshold: number;
+  tradeCooldownMs: number;
+  /** Fixed-fractional risk budget per trade (e.g. 0.01 = risk 1% of equity). */
+  riskPerTradePct: number;
+  /** Stop distance below entry; scales with the horizon (wider for weekly). */
+  stopLossPct: number;
+}
+
 export interface RiskResult {
   approved: boolean;
   /** Quantity the risk gate will allow (may be smaller than requested). */
   quantity: number;
   reasons: string[];
+  /** Protective stop price for the order (buys), from the active stopLossPct. */
+  stopPrice?: number;
 }

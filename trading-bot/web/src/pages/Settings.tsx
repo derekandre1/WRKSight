@@ -6,12 +6,18 @@ export function Settings({ state }: { state: BotState | null }) {
   const [watchlist, setWatchlist] = useState(state?.watchlist.join(', ') ?? '');
   const [saved, setSaved] = useState('');
 
-  // Seed local form when state first arrives.
+  // Seed the watchlist once.
   useEffect(() => {
-    if (state && !risk) setRisk(state.risk);
     if (state && watchlist === '') setWatchlist(state.watchlist.join(', '));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
+
+  // (Re)seed the risk form whenever the active profile changes — including when
+  // the timeframe is switched, which activates that timeframe's profile.
+  useEffect(() => {
+    if (state) setRisk(state.risk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.timeframe]);
 
   if (!state || !risk) return <div className="text-muted">Loading…</div>;
 
@@ -27,8 +33,10 @@ export function Settings({ state }: { state: BotState | null }) {
       dailyLossLimitPct: risk.dailyLossLimitPct,
       convictionThreshold: risk.convictionThreshold,
       tradeCooldownMs: risk.tradeCooldownMs,
+      riskPerTradePct: risk.riskPerTradePct,
+      stopLossPct: risk.stopLossPct,
     });
-    flash('Risk settings saved.');
+    flash(`Risk settings saved (${state.timeframe} profile).`);
   };
 
   const saveWatchlist = async () => {
@@ -110,8 +118,19 @@ export function Settings({ state }: { state: BotState | null }) {
 
       {/* Risk tuning */}
       <section className="card p-4">
-        <h2 className="font-semibold mb-3">Risk rules</h2>
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-semibold">Risk rules</h2>
+          <span className="text-xs text-muted capitalize">{state.timeframe} profile</span>
+        </div>
+        <p className="text-muted text-sm mb-3">
+          Position size is the most constraining of: fixed-fractional risk
+          (risk-per-trade ÷ stop distance), the per-trade cap, exposure headroom,
+          and buying power. A wider stop ⇒ smaller size for the same dollar risk.
+          Edits apply to the active timeframe's profile.
+        </p>
         <div className="grid grid-cols-2 gap-3">
+          <Pct label="Risk per trade" value={risk.riskPerTradePct} onChange={(v) => setRisk({ ...risk, riskPerTradePct: v })} />
+          <Pct label="Stop loss" value={risk.stopLossPct} onChange={(v) => setRisk({ ...risk, stopLossPct: v })} />
           <Pct label="Max exposure" value={risk.maxExposurePct} onChange={(v) => setRisk({ ...risk, maxExposurePct: v })} />
           <Pct label="Max trade size" value={risk.maxTradePct} onChange={(v) => setRisk({ ...risk, maxTradePct: v })} />
           <Pct label="Daily loss limit" value={risk.dailyLossLimitPct} onChange={(v) => setRisk({ ...risk, dailyLossLimitPct: v })} />

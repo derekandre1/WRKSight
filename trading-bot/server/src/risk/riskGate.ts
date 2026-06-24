@@ -7,8 +7,10 @@ import type { AccountSnapshot, Candidate, OrderPreview, Quote, RiskResult } from
  * shrink, or outright reject, a trade. For live orders it also requires the
  * broker's own preview to have passed.
  *
- * Enforces: position sizing, exposure caps, daily loss circuit breaker, trade
- * cooldowns, flip-flop detection, and the live-preview requirement.
+ * Enforces: fixed-fractional position sizing (constant risk-per-trade with a
+ * timeframe-scaled stop), per-trade and exposure caps, daily loss circuit
+ * breaker, trade cooldowns, flip-flop detection, and the live-preview
+ * requirement. Sizing uses the active timeframe's risk profile (state.risk).
  */
 export function evaluateRisk(args: {
   candidate: Candidate;
@@ -74,14 +76,16 @@ export function evaluateRisk(args: {
     return { approved: true, quantity: qty, reasons: ['Selling full position.'] };
   }
 
-  // 5. Sizing for buys: per-trade cap and total exposure cap.
+  // 5. Sizing for buys. Quantity is the MOST CONSTRAINING of:
+  //    (a) fixed-fractional risk budget given the timeframe's stop width,
+  //    (b) per-trade notional cap,
+  //    (c) remaining exposure headroom,
+  //    (d) buying power.
   const price = preview?.estimatedPrice || quote.price;
   if (price <= 0) return { approved: false, quantity: 0, reasons: ['No valid price.'] };
 
-  const perTradeBudget = account.equity * risk.maxTradePct;
   const currentExposure = account.positions.reduce((s, p) => s + p.marketValue, 0);
   const exposureHeadroom = account.equity * risk.maxExposurePct - currentExposure;
-
   if (exposureHeadroom <= 0) {
     return {
       approved: false,
@@ -90,21 +94,39 @@ export function evaluateRisk(args: {
     };
   }
 
-  const budget = Math.min(perTradeBudget, exposureHeadroom, account.buyingPower);
-  const quantity = Math.floor(budget / price);
+  // (a) Fixed-fractional: risk a constant % of equity; the stop distance (which
+  // scales with the horizon) sets the share count. Wider weekly stop -> fewer
+  // shares for the same dollar risk. This is the canonical sizing method.
+  const stopDistance = price * risk.stopLossPct;
+  const riskBudget = account.equity * risk.riskPerTradePct;
+  const sharesByRisk = stopDistance > 0 ? riskBudget / stopDistance : Infinity;
+
+  // (b)-(d) the notional/exposure/buying-power caps, in shares.
+  const sharesByTradeCap = (account.equity * risk.maxTradePct) / price;
+  const sharesByExposure = exposureHeadroom / price;
+  const sharesByBuyingPower = account.buyingPower / price;
+
+  const bound = Math.min(sharesByRisk, sharesByTradeCap, sharesByExposure, sharesByBuyingPower);
+  const quantity = Math.floor(bound);
 
   if (quantity <= 0) {
     return {
       approved: false,
       quantity: 0,
-      reasons: [`Budget ($${budget.toFixed(2)}) too small for one share at $${price.toFixed(2)}.`],
+      reasons: [`Sizing too small for one share at $${price.toFixed(2)} (most constraining budget ≈ $${(bound * price).toFixed(2)}).`],
     };
   }
 
+  const stopPrice = Math.round(price * (1 - risk.stopLossPct) * 100) / 100;
+  const binding =
+    bound === sharesByRisk ? `risk-per-trade ${(risk.riskPerTradePct * 100).toFixed(1)}% @ ${(risk.stopLossPct * 100).toFixed(0)}% stop`
+    : bound === sharesByTradeCap ? `per-trade cap ${(risk.maxTradePct * 100).toFixed(0)}%`
+    : bound === sharesByExposure ? 'exposure headroom'
+    : 'buying power';
   reasons.push(
-    `Sized to ${quantity} share(s): per-trade cap $${perTradeBudget.toFixed(0)}, exposure headroom $${exposureHeadroom.toFixed(0)}.`,
+    `Sized to ${quantity} share(s) — bound by ${binding}; stop $${stopPrice.toFixed(2)} (-${(risk.stopLossPct * 100).toFixed(0)}%).`,
   );
-  return { approved: true, quantity, reasons };
+  return { approved: true, quantity, reasons, stopPrice };
 }
 
 /** Record a trade so cooldown / flip-flop tracking works. */

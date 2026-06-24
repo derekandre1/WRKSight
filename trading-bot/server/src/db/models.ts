@@ -36,6 +36,7 @@ const OrderLogSchema = new Schema(
     side: String,
     quantity: Number,
     price: Number,
+    stopPrice: Number,
     status: String,
     adapter: String,
     decisionId: { type: Schema.Types.ObjectId, ref: 'DecisionLog' },

@@ -1,5 +1,5 @@
 import { config } from './config.js';
-import type { AdapterKind, Timeframe } from './types.js';
+import type { AdapterKind, RiskProfile, Timeframe } from './types.js';
 import { bus } from './feed/bus.js';
 
 /**
@@ -11,13 +11,10 @@ export interface RuntimeState {
   paused: boolean;
   adapter: AdapterKind;
   timeframe: Timeframe;
-  risk: {
-    maxExposurePct: number;
-    maxTradePct: number;
-    dailyLossLimitPct: number;
-    convictionThreshold: number;
-    tradeCooldownMs: number;
-  };
+  /** One risk profile per timeframe. */
+  profiles: Record<Timeframe, RiskProfile>;
+  /** Reference to the profile for the active timeframe (profiles[timeframe]). */
+  risk: RiskProfile;
   watchlist: string[];
   /** Equity at the start of the trading day, for the daily-loss circuit breaker. */
   dayStartEquity: number | null;
@@ -29,11 +26,20 @@ export interface RuntimeState {
   circuitBroken: boolean;
 }
 
+const initialTimeframe: Timeframe = config.timeframe === 'weekly' ? 'weekly' : 'daily';
+const profiles: Record<Timeframe, RiskProfile> = {
+  daily: { ...config.riskProfiles.daily },
+  weekly: { ...config.riskProfiles.weekly },
+};
+
 export const state: RuntimeState = {
   paused: false,
   adapter: config.brokerAdapter,
-  timeframe: config.timeframe === 'weekly' ? 'weekly' : 'daily',
-  risk: { ...config.risk },
+  timeframe: initialTimeframe,
+  profiles,
+  // `risk` always references the active profile object, so edits to it persist
+  // on that profile and switching timeframe swaps which profile is active.
+  risk: profiles[initialTimeframe],
   watchlist: [...config.watchlist],
   dayStartEquity: null,
   lastTradeAt: {},
@@ -61,7 +67,12 @@ export function setPaused(paused: boolean): void {
 
 export function setTimeframe(next: Timeframe): void {
   state.timeframe = next;
-  bus.emitEvent('state', `Trading horizon set to ${next}.`, { timeframe: next });
+  // Activate that timeframe's risk profile (wider stop, different caps, etc.).
+  state.risk = state.profiles[next];
+  bus.emitEvent('state', `Trading horizon set to ${next} (risk profile activated).`, {
+    timeframe: next,
+    risk: state.risk,
+  });
 }
 
 export function publicState() {
@@ -70,6 +81,7 @@ export function publicState() {
     adapter: state.adapter,
     timeframe: state.timeframe,
     risk: state.risk,
+    profiles: state.profiles,
     watchlist: state.watchlist,
     circuitBroken: state.circuitBroken,
   };

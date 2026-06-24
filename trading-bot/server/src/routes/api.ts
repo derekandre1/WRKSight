@@ -119,6 +119,8 @@ const riskSchema = z.object({
   dailyLossLimitPct: z.number().min(0).max(1).optional(),
   convictionThreshold: z.number().min(0).max(1).optional(),
   tradeCooldownMs: z.number().min(0).optional(),
+  riskPerTradePct: z.number().min(0).max(1).optional(),
+  stopLossPct: z.number().min(0).max(1).optional(),
 });
 
 apiRouter.post('/risk', (req, res) => {

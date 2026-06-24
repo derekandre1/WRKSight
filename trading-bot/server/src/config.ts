@@ -51,13 +51,30 @@ export const config = {
     retriggerMs: num('SENTINEL_RETRIGGER_MS', 6 * 60 * 60 * 1000),
   },
 
-  risk: {
-    maxExposurePct: num('MAX_EXPOSURE_PCT', 0.5),
-    maxTradePct: num('MAX_TRADE_PCT', 0.1),
-    dailyLossLimitPct: num('DAILY_LOSS_LIMIT_PCT', 0.05),
-    convictionThreshold: num('CONVICTION_THRESHOLD', 0.65),
-    // Daily/weekly horizon: avoid churning the same name. Default 1 day.
-    tradeCooldownMs: num('TRADE_COOLDOWN_MS', 24 * 60 * 60 * 1000),
+  // Per-timeframe risk profiles. Both share a constant fixed-fractional
+  // risk-per-trade; the stop distance and the caps scale with the horizon.
+  // Daily keeps the existing env vars (back-compat with the "Moderate" setup).
+  riskProfiles: {
+    daily: {
+      maxExposurePct: num('MAX_EXPOSURE_PCT', 0.5),
+      maxTradePct: num('MAX_TRADE_PCT', 0.1),
+      dailyLossLimitPct: num('DAILY_LOSS_LIMIT_PCT', 0.05),
+      convictionThreshold: num('CONVICTION_THRESHOLD', 0.65),
+      tradeCooldownMs: num('TRADE_COOLDOWN_MS', 24 * 60 * 60 * 1000),
+      riskPerTradePct: num('RISK_PER_TRADE_PCT', 0.01),
+      stopLossPct: num('STOP_LOSS_DAILY_PCT', 0.07),
+    },
+    weekly: {
+      maxExposurePct: num('WEEKLY_MAX_EXPOSURE_PCT', 0.6),
+      maxTradePct: num('WEEKLY_MAX_TRADE_PCT', 0.15),
+      dailyLossLimitPct: num('WEEKLY_DAILY_LOSS_LIMIT_PCT', 0.08),
+      convictionThreshold: num('WEEKLY_CONVICTION_THRESHOLD', num('CONVICTION_THRESHOLD', 0.65)),
+      tradeCooldownMs: num('WEEKLY_TRADE_COOLDOWN_MS', 3 * 24 * 60 * 60 * 1000),
+      // Same risk-per-trade as daily — that's the point of fixed-fractional.
+      riskPerTradePct: num('RISK_PER_TRADE_PCT', 0.01),
+      // Wider stop for the longer horizon.
+      stopLossPct: num('STOP_LOSS_WEEKLY_PCT', 0.14),
+    },
   },
 
   simStartingCash: num('SIM_STARTING_CASH', 100_000),

@@ -112,17 +112,19 @@ export async function processCandidate(candidate: Candidate): Promise<void> {
     // 6. Place the order.
     const order = await adapter.placeOrder({ symbol: candidate.symbol, side: candidate.side, quantity: risk.quantity });
     recordTrade(candidate.symbol, candidate.side);
-    bus.emitEvent('order', `${order.status.toUpperCase()} ${candidate.side} ${risk.quantity} ${candidate.symbol} @ ${order.filledPrice ?? 'market'}`, order);
+    const stopNote = candidate.side === 'buy' && risk.stopPrice ? ` (stop $${risk.stopPrice})` : '';
+    bus.emitEvent('order', `${order.status.toUpperCase()} ${candidate.side} ${risk.quantity} ${candidate.symbol} @ ${order.filledPrice ?? 'market'}${stopNote}`, { ...order, stopPrice: risk.stopPrice });
 
     const decisionDoc = await logDecision({
       candidate, ...decision, threshold, outcome: 'routed',
-      riskReasons: risk.reasons, snapshot, order, adapter: adapter.kind,
+      riskReasons: risk.reasons, snapshot, order: { ...order, stopPrice: risk.stopPrice }, adapter: adapter.kind,
     });
 
     if (isMongoConnected()) {
       await OrderLog.create({
         orderId: order.orderId, symbol: order.symbol, side: order.side, quantity: order.quantity,
         price: order.filledPrice ?? quote.price, status: order.status, adapter: adapter.kind,
+        stopPrice: candidate.side === 'buy' ? risk.stopPrice : undefined,
         decisionId: decisionDoc?._id,
       });
     }

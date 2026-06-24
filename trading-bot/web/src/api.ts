@@ -10,6 +10,8 @@ export interface BotState {
     dailyLossLimitPct: number;
     convictionThreshold: number;
     tradeCooldownMs: number;
+    riskPerTradePct: number;
+    stopLossPct: number;
   };
   watchlist: string[];
   circuitBroken: boolean;

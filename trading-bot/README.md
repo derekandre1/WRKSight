@@ -124,6 +124,25 @@ The bot trades on a **daily/weekly** swing/position horizon, not intraday. Set
   sentiment** into conviction (positive catalysts raise buy conviction, negative
   news lowers it). Recent headlines are passed with every candidate.
 
+## Risk profiles (per timeframe)
+
+Each timeframe has its own risk profile, anchored on the standard
+**fixed-fractional** method: a constant `RISK_PER_TRADE_PCT` (default 1% of
+equity at risk per trade), with the **stop distance scaled to the horizon**
+(daily ~7%, weekly ~14%). Position size is the *most constraining* of:
+
+1. fixed-fractional risk budget ÷ stop distance,
+2. per-trade notional cap,
+3. exposure headroom,
+4. buying power.
+
+So a wider weekly stop produces a *smaller* position for the same dollar risk —
+the textbook relationship. Weekly otherwise allows larger notional/exposure caps
+and a longer cooldown (fewer, longer-held positions). Switching the timeframe in
+Settings activates that profile; the risk form edits whichever profile is
+active. Each buy logs a protective **stop price**, and the end-of-day review
+flags any position trading below its stop.
+
 ## Going live (Robinhood agentic)
 
 Robinhood equities have no API key/secret. The bot connects as an **MCP client**

@@ -47,7 +47,14 @@ export function startSchedulers(): void {
       if (positions.length === 0) return;
       bus.emitEvent('log', `End-of-day review of ${positions.length} position(s).`);
       for (const p of positions) {
-        await processCandidate(makeCandidate(p.symbol, 'sell', 'intraday_review', 'End-of-day position review'));
+        // Protective-stop check: flag a breach explicitly so the engine sees it.
+        const stop = p.avgPrice * (1 - state.risk.stopLossPct);
+        const breached = p.marketPrice < stop;
+        const condition = breached
+          ? `Stop breached: ${p.symbol} $${p.marketPrice.toFixed(2)} < stop $${stop.toFixed(2)} (-${(state.risk.stopLossPct * 100).toFixed(0)}%)`
+          : 'End-of-day position review';
+        if (breached) bus.emitEvent('risk', condition, { symbol: p.symbol, stop, price: p.marketPrice });
+        await processCandidate(makeCandidate(p.symbol, 'sell', 'intraday_review', condition));
       }
     } catch (err) {
       bus.emitEvent('error', `Position review failed: ${(err as Error).message}`);
